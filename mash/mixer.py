@@ -7,6 +7,7 @@ import numpy as np
 from tempfile import TemporaryFile
 import pickle, json, os
 
+from mash.config import default_cache_dir
 from mash.song import Song
 
 
@@ -18,7 +19,7 @@ class Mixer:
         song1: str,
         song2: str,
         cached: bool = False,
-        cache_dir: typing.Optional[str] = None,
+        cache_dir: str = default_cache_dir,
         sample_rate: int = 22050,
     ):
         """Create a mixer.
@@ -30,183 +31,86 @@ class Mixer:
             cache_dir: Cache directory
             sample_rate: new sample rate for audio files
         """
-        self.best_score = None
-        self.song1 = Song(song1)
-        self.song2 = Song(song2)
-        self.songs = [Song(song1), Song(song2)]
         self.sr = sample_rate
-
         self.cached = cached
-        if cached:
-            if cache_dir is None:
-                self.cache_dir = os.path.join(
-                    os.path.join(os.path.expanduser("~"), ".cache"),
-                    "mix")
-            else:
-                self.cache_dir = cache_dir
-            if not os.path.isdir(self.cache_dir):
-                os.mkdir(self.cache_dir)
+        self.cache_dir   = cache_dir
+        if cached and not os.path.isdir(self.cache_dir):
+            os.mkdir(self.cache_dir)
 
-        self.Yin = []
-        self.Yout = []
-        self.pathIn = []
-        self.pathOut = []
-        self.beats = {'in': [], 'out': []}
-        self.tempo = {'in': 0, 'out': 0}
+        self.song1 = Song(song1, 0, sample_rate, cached, cache_dir)
+        self.song2 = Song(song2, 1, sample_rate, cached, cache_dir)
 
-        self._load()
-        self._extract()
-        self._segment()
-        self._speedUp()
+        self.mixed = None
 
-    def mix(self):
-        self.out = self._mix()
+        self.load_songs()
+        self.analyse()
+
+    def load_songs(self):
+        self.y1 = self.song1.load()
+        self.y2 = self.song2.load()
 
     def export(self, filename: str = "mixed.mp3"):
         assert filename.endswith(".mp3")
-        print("Exporting...")
-        self.out.export(out_f=filename, format="mp3")
-        print("[SUCCESS] Export as `final.mp3`")
+        self.mixed.export(out_f=filename, format="mp3")
 
-    def _load(self):
-        for i, song in enumerate(self.songs):
-            if self.cached and os.path.exists(os.path.join(self.cache_dir, f"{song.name}.pkl")):
-                print("\nLoading", song.name, "from cache")
-                with open(os.path.join(self.cache_dir, f"{song.name}.pkl"), 'rb') as f:
-                    if i == 0:
-                        print("Yin=", song.name)
-                        self.Yin = pickle.load(f)
-                        self.pathIn = song.path
-                    else:
-                        print("Yout=", song.name)
-                        self.Yout.append(pickle.load(f))
-                        self.pathOut.append(song.path)
-            else:
-                print("\nLoading", song.name)
-                y, sr = librosa.load(song.path, sr=self.sr)
-                if i == 0:
-                    self.Yin = y
-                    self.pathIn = song.path
-                else:
-                    self.Yout.append(y)
-                    self.pathOut.append(song.path)
-                print("[SUCCESS] Loaded", song.name)
-
-                if self.cached:
-                    try:
-                        with open(os.path.join(self.cache_dir, f"{song.name}.pkl"), 'wb') as f:
-                            pickle.dump(y, f)
-                            print("[SUCCESS] Cached", song.name)
-                    except Exception as e:
-                        print("[FAILED] Caching", song.name)
-                        print(e)
-
-    def _extract(self):
+    def analyse(self):
         # TODO: Add cosine distance similarity to choose the best mixout
-        self.Yout = self.Yout[0] # NOTE: considering 1mixin & 1mixout
-        self.pathOut = self.pathOut[0]
+        self.y1 = self.song1.analyse()
+        self.y2 = self.song2.analyse()
 
-        self.tempo['in'], self.beats['in'] = librosa.beat.beat_track(y=self.Yin, sr=self.sr)
-        self.tempo['out'], self.beats['out'] = librosa.beat.beat_track(y=self.Yout, sr=self.sr)
+        # Compute crossfade sizes
+        na = self.song1.beats.shape[0] - 1
 
-        print("TempoIn=", self.tempo['in'])
-        print("TempoOut=", self.tempo['out'])
+        scores = [
+            sum(self.song1.beats[na-i+1] * self.song2.beats[i] for i in range(1, t + 1)) / t
+            for t in range(2, na // 4)]
+        beats = np.argmax(scores) + 2
 
-        self.otac()
-        self._crossFadeRegion()
+        in_duration = 1000 * librosa.get_duration(y=self.song1.y, sr=self.sr)
+        self.fade_out_start = 1000 * librosa.frames_to_time(self.song1.beats, sr=self.sr)[-beats//2]
+        self.fade_out_length = in_duration - self.fade_out_start
+        self.fade_in_length = 1000 * librosa.frames_to_time(self.song2.beats, sr=self.sr)[beats//2]
 
-    def otac(self): # Optimal Tempo Adjustment Coefficient Computation
-        C = [-2, -1, 0, 1, 2]
+        if self.fade_in_length >= self.fade_out_length:
+            self.speed = self.fade_in_length / self.fade_out_length
+        else:
+            self.speed = self.fade_out_length / self.fade_in_length
 
-        if self.tempo['in'] == self.tempo['out']:
-            self.tempo['tgt'] = self.tempo['in']
-            return
+        if self.speed > 1.2:
+            raise ValueError("Too much speed up")
 
-        Tin_ = [(2**c)*self.tempo['in'] for c in C]
-        TinIndex_ = np.argmin(np.absolute(Tin_ - self.tempo['out']))
-        Copt = C[TinIndex_]
-        Bopt = (2**Copt)*self.tempo['in']
+    def mix(self):
+        # Load files
+        s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
+        s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
 
-        Tlow = min(Bopt, self.tempo['out'])
-        Thigh = max(Bopt, self.tempo['out'])
-
-        a, b = 0.765, 1
-        Ttgt = (a-b)*Tlow + np.sqrt( ((a-b)**2)*(Tlow**2) + 4*a*b*Thigh*Tlow )
-        Ttgt = Ttgt/(2*a)
-
-        print("FoptIn=", Ttgt/Bopt)
-        print("FoptOut=", Ttgt/self.tempo['out'])
-        print("Ttgt=", Ttgt)
-
-        self.tempo['tgt'] = Ttgt
-        return Ttgt
-
-    def _crossFadeRegion(self): # Computes the cross fade region for the mixed song
-        Na = self.beats['in'].shape[0]-1
-
-        scores = [self._score(i, Na) for i in range(2, int(Na/4))]
-        noBeats = np.argmax(scores)+2
-
-        inDuration = librosa.get_duration(y=self.Yin, sr=self.sr)
-        fadeInStart = librosa.frames_to_time(self.beats['in'], sr=self.sr)[-int(noBeats/2)]
-        fadeIn = inDuration - fadeInStart
-
-        fadeOut = librosa.frames_to_time(self.beats['out'], sr=self.sr)[int(noBeats/2)]
-
-        self.best_score = np.max(scores)
-        print("Best Power Corelation Scores=", self.best_score)
-        print("Number of beats in cross fade region=", noBeats)
-        print("fadeInStart=", fadeInStart)
-        print("fadeOutEnd=", fadeOut)
-        print("Cross Fade Time=", fadeIn+fadeOut)
-
-        self.crossFade = [fadeInStart*1000, fadeOut*1000] # In milliseconds
-
-
-    def _score(self, T, Na):
-        cr = 0
-        for i in range(1, T+1):
-            cr += self.beats['in'][Na-i+1]*self.beats['out'][i]
-        return cr/T
-
-    def _segment(self):
-        print("Started Segmentation")
-
-        sIn = pydub.AudioSegment.from_file(self.pathIn, format="mp3")
-        sOut = pydub.AudioSegment.from_file(self.pathOut, format="mp3")
-
-        print("[SUCCESS] Segmented audio files")
-
-        self.segments = {
-            'in': [ sIn[:self.crossFade[0]], sIn[self.crossFade[0]:] ],
-            'out': [ sOut[:self.crossFade[1]], sOut[self.crossFade[1]:] ],
-        }
-        del sIn, sOut
-
-    def _speedUp(self):
-        s1 = self.segments['in'][1]
-        s2 = self.segments['out'][0]
-
-        speed1 = self.tempo['tgt']/self.tempo['in']
-        speed2 = self.tempo['tgt']/self.tempo['out']
-
-        print("Playback Speed of in end segment=",speed1,'X')
-        print("Playback Speed of out start segment=",speed2,'X')
-
-        s1 = s1.speedup(playback_speed=speed1)
-        s2 = s1.speedup(playback_speed=speed2)
-
-    def _mix(self):
-        xf = self.segments['in'][1].fade(to_gain=-120, start=0, end=float('inf'))
-        xf *= self.segments['out'][0].fade(from_gain=-120, start=0, end=float('inf'))
+        s1_pre = s1[:self.fade_out_start]
+        s1_fade = s1[self.fade_out_start:]
+        s2_fade = s2[:self.fade_in_length]
+        s2_post = s2[self.fade_in_length:]
 
         out = TemporaryFile()
 
-        out.write(self.segments['in'][0]._data)
-        out.write(xf._data)
-        out.write(self.segments['out'][1]._data)
+        if self.fade_in_length >= self.fade_out_length:
+            out.write(s1_pre._data)
+            xf = s1_fade.fade(to_gain=-120, start=0, end=float('inf'))
+        else:
+            out.write(s1_pre[:-200*9]._data)
+            for i in range(1, 10):
+                out.write(s1_pre[-200 * i:-200 * (i-1)].speedup(self.speed ** (i/10))._data)
+            xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float('inf'))
+
+        if self.fade_in_length <= self.fade_out_length:
+            xf *= s2_fade.fade(from_gain=-120, start=0, end=float('inf'))
+            out.write(xf._data)
+            out.write(s2_post._data)
+        else:
+            xf *= s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float('inf'))
+            out.write(xf._data)
+            for i in range(1, 10):
+                out.write(s2_post[200 * (i - 1):200 * i].speedup(self.speed ** (1 - i/10))._data)
+            out.write(s2_post[200*9:]._data)
 
         out.seek(0)
 
-        print("[SUCCESS] Mixed 4 audio segment to 1")
-        return self.segments['in'][0]._spawn(data=out)
+        self.mixed = s1_pre._spawn(data=out)
