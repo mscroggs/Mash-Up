@@ -1,16 +1,52 @@
-from __future__ import division
-
-import librosa, pydub
+import os
+import os.path
+import typing
+import librosa
+import pydub
 import numpy as np
 from tempfile import TemporaryFile
 import pickle, json, os
 
-class mash:
+from mash.song import Song
 
-    def __init__(self, json_, cached=False):
-        self.sr = 22050  # new Sampling Rate for the audio files
 
-        self.songs = json_
+class Mixer:
+    """Mixer."""
+
+    def __init__(
+        self,
+        song1: str,
+        song2: str,
+        cached: bool = False,
+        cache_dir: typing.Optional[str] = None,
+        sample_rate: int = 22050,
+    ):
+        """Create a mixer.
+
+        Args:
+            song1: Path of song to play first
+            song2: Path of song to play second
+            cached: Should *TODO: something* be cached
+            cache_dir: Cache directory
+            sample_rate: new sample rate for audio files
+        """
+        self.best_score = None
+        self.song1 = Song(song1)
+        self.song2 = Song(song2)
+        self.songs = [Song(song1), Song(song2)]
+        self.sr = sample_rate
+
+        self.cached = cached
+        if cached:
+            if cache_dir is None:
+                self.cache_dir = os.path.join(
+                    os.path.join(os.path.expanduser("~"), ".cache"),
+                    "mix")
+            else:
+                self.cache_dir = cache_dir
+            if not os.path.isdir(self.cache_dir):
+                os.mkdir(self.cache_dir)
+
         self.Yin = []
         self.Yout = []
         self.pathIn = []
@@ -18,54 +54,52 @@ class mash:
         self.beats = {'in': [], 'out': []}
         self.tempo = {'in': 0, 'out': 0}
 
-        self._setup()
-        self._load(cached=cached)
+        self._load()
         self._extract()
         self._segment()
         self._speedUp()
-        out = self._mix()
 
+    def mix(self):
+        self.out = self._mix()
+
+    def export(self, filename: str = "mixed.mp3"):
+        assert filename.endswith(".mp3")
         print("Exporting...")
-        out.export(out_f="final.mp3", format="mp3")
+        self.out.export(out_f=filename, format="mp3")
         print("[SUCCESS] Export as `final.mp3`")
 
-    def _setup(self):
-        if not os.path.exists('cache'):
-            os.makedirs('cache')
-
-    def _load(self, cached=True):
-        for song in self.songs:
-            if os.path.exists("cache/%s.pkl"%song['name']):
-                print("\nLoading", song['name'], "from cache")
-                with open("cache/%s.pkl"%song['name'], 'rb') as f:
-                    if song['mixin']:
-                        print("Yin=", song['name'])
+    def _load(self):
+        for i, song in enumerate(self.songs):
+            if self.cached and os.path.exists(os.path.join(self.cache_dir, f"{song.name}.pkl")):
+                print("\nLoading", song.name, "from cache")
+                with open(os.path.join(self.cache_dir, f"{song.name}.pkl"), 'rb') as f:
+                    if i == 0:
+                        print("Yin=", song.name)
                         self.Yin = pickle.load(f)
-                        self.pathIn = song['path']
+                        self.pathIn = song.path
                     else:
-                        print("Yout=", song['name'])
+                        print("Yout=", song.name)
                         self.Yout.append(pickle.load(f))
-                        self.pathOut.append(song['path'])
-                continue
-
-            print("\nLoading", song['name'])
-            y, sr = librosa.load(song['path'], sr=self.sr)
-            if song['mixin']:
-                self.Yin = y
-                self.pathIn = song['path']
+                        self.pathOut.append(song.path)
             else:
-                self.Yout.append(y)
-                self.pathOut.append(song['path'])
-            print("[SUCCESS] Loaded", song['name'])
+                print("\nLoading", song.name)
+                y, sr = librosa.load(song.path, sr=self.sr)
+                if i == 0:
+                    self.Yin = y
+                    self.pathIn = song.path
+                else:
+                    self.Yout.append(y)
+                    self.pathOut.append(song.path)
+                print("[SUCCESS] Loaded", song.name)
 
-            if cached:
-                try:
-                    with open('cache/%s.pkl'%song['name'], 'wb') as f:
-                        pickle.dump(y, f)
-                        print("[SUCCESS] Cached", song['name'])
-                except Exception as e:
-                    print("[FAILED] Caching", song['name'])
-                    print(e)
+                if self.cached:
+                    try:
+                        with open(os.path.join(self.cache_dir, f"{song.name}.pkl"), 'wb') as f:
+                            pickle.dump(y, f)
+                            print("[SUCCESS] Cached", song.name)
+                    except Exception as e:
+                        print("[FAILED] Caching", song.name)
+                        print(e)
 
     def _extract(self):
         # TODO: Add cosine distance similarity to choose the best mixout
@@ -78,10 +112,10 @@ class mash:
         print("TempoIn=", self.tempo['in'])
         print("TempoOut=", self.tempo['out'])
 
-        self._OTAC()
+        self.otac()
         self._crossFadeRegion()
 
-    def _OTAC(self): # Optimal Tempo Adjustment Coefficient Computation
+    def otac(self): # Optimal Tempo Adjustment Coefficient Computation
         C = [-2, -1, 0, 1, 2]
 
         if self.tempo['in'] == self.tempo['out']:
@@ -105,6 +139,7 @@ class mash:
         print("Ttgt=", Ttgt)
 
         self.tempo['tgt'] = Ttgt
+        return Ttgt
 
     def _crossFadeRegion(self): # Computes the cross fade region for the mixed song
         Na = self.beats['in'].shape[0]-1
@@ -118,7 +153,8 @@ class mash:
 
         fadeOut = librosa.frames_to_time(self.beats['out'], sr=self.sr)[int(noBeats/2)]
 
-        print("Best Power Corelation Scores=", np.max(scores))
+        self.best_score = np.max(scores)
+        print("Best Power Corelation Scores=", self.best_score)
         print("Number of beats in cross fade region=", noBeats)
         print("fadeInStart=", fadeInStart)
         print("fadeOutEnd=", fadeOut)
@@ -174,8 +210,3 @@ class mash:
 
         print("[SUCCESS] Mixed 4 audio segment to 1")
         return self.segments['in'][0]._spawn(data=out)
-
-if __name__ == '__main__':
-    with open('songs.json', 'r') as f:
-        j = json.loads(f.read())
-        obj = mash(j, cached=True)
