@@ -1,4 +1,4 @@
-# mashup
+# Mashup
 
 Mashup is a small Python package that can mix 2 songs in a desirable way. It has been made by
 following Full-automatic DJ mixing system with optimal tempo adjustment based on measurement function of user discomfort (2009) [1].
