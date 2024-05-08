@@ -4,7 +4,6 @@ import os.path
 import librosa
 import pydub
 import numpy as np
-from tempfile import TemporaryFile
 
 from .config import default_cache_dir
 from .song import Song
@@ -40,6 +39,8 @@ class Mixer:
         self.song2 = Song(song2, 1, sample_rate, cached, cache_dir)
 
         self.mixed: typing.Optional[typing.Any] = None
+        self.fade_end: typing.Optional[float] = None
+        self.song2_fade_end: typing.Optional[float] = None
         self.mixability = -1
 
     def load_songs(self):
@@ -124,59 +125,52 @@ class Mixer:
         s2_fade = s2[: self.fade_in_length]
         s2_post = s2[self.fade_in_length :]
 
-        out = TemporaryFile()
-
         if self.fade_in_length >= self.fade_out_length or self.speed < 1.01:
             if shortened:
-                out.write(s1_pre[-1000:]._data)
+                out = s1_pre[-1000:]
             else:
-                out.write(s1_pre._data)
+                out = s1_pre
         else:
             if shortened:
-                out.write(s1_pre[-2500 : -200 * 9]._data)
+                out = s1_pre[-2500 : -200 * 9]
             else:
-                out.write(s1_pre[: -200 * 9]._data)
+                out = s1_pre[: -200 * 9]
             for i in range(9, 0, -1):
                 if i == 1:
-                    out.write(s1_pre[-200:].speedup(self.speed ** (1 - i / 10))._data)
+                    out += s1_pre[-200:].speedup(self.speed ** (1 - i / 10))
                 else:
-                    out.write(
-                        s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (1 - i / 10))._data
-                    )
+                    out += s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (1 - i / 10))
 
-        if self.speed < 1.01:
-            if self.fade_in_length >= self.fade_out_length:
-                xf = s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
-                xf *= s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
-            else:
-                xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
-                xf *= s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
-        else:
-            if self.fade_in_length >= self.fade_out_length:
-                xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
-            else:
-                xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf"))
-            if self.fade_in_length <= self.fade_out_length:
-                xf *= s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
-            else:
-                xf *= s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float("inf"))
-        out.write(xf._data)
+        fade_start = out.duration_seconds
 
         if self.fade_in_length <= self.fade_out_length or self.speed < 1.01:
+            out += s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
+        else:
+            out += s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float("inf"))
+
+        if self.fade_in_length <= self.fade_out_length or self.speed < 1.01:
+            self.fade_end = out.duration_seconds
+            self.song2_fade_end = s2.duration_seconds - s2_post.duration_seconds
+
             if shortened:
-                out.write(s2_post[:1000]._data)
+                out += s2_post[:1000]
             else:
-                out.write(s2_post._data)
+                out += s2_post
         else:
             for i in range(1, 10):
-                out.write(
-                    s2_post[200 * (i - 1) : 200 * i].speedup(self.speed ** (1 - i / 10))._data
-                )
+                out += s2_post[200 * (i - 1) : 200 * i].speedup(self.speed ** (1 - i / 10))
+
+            self.fade_end = out.duration_seconds
+            self.song2_fade_end = s2.duration_seconds - s2_post[200*9:].duration_seconds
+
             if shortened:
-                out.write(s2_post[200 * 9 : 2500]._data)
+                out += s2_post[200 * 9 : 2500]
             else:
-                out.write(s2_post[200 * 9 :]._data)
+                out += s2_post[200 * 9 :]
 
-        out.seek(0)
+        if self.fade_in_length >= self.fade_out_length or self.speed < 1.01:
+            out = out.overlay(s1_fade.fade(to_gain=-120, start=0, end=float("inf")), position=1000*fade_start)
+        else:
+            out = out.overlay(s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf")), position=1000*fade_start)
 
-        self.mixed = s1_pre._spawn(data=out)
+        self.mixed = out
