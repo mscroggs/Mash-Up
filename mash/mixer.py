@@ -1,3 +1,4 @@
+import typing
 import os
 import os.path
 import librosa
@@ -39,7 +40,7 @@ class Mixer:
         self.song1 = Song(song1, 0, sample_rate, cached, cache_dir)
         self.song2 = Song(song2, 1, sample_rate, cached, cache_dir)
 
-        self.mixed = None
+        self.mixed: typing.Optional[typing.Any] = None
 
         self.load_songs()
         self.analyse()
@@ -50,6 +51,8 @@ class Mixer:
 
     def export(self, filename: str = "mixed.mp3"):
         assert filename.endswith(".mp3")
+        if self.mixed is None:
+            raise RuntimeError("Must mix before exporting")
         self.mixed.export(out_f=filename, format="mp3")
 
     def analyse(self):

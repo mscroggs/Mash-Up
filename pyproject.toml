@@ -21,7 +21,7 @@ homepage = "https://github.com/mscroggs/Mash-Up"
 repository = "https://github.com/mscroggs/Mash-Up"
 
 [project.optional-dependencies]
-style = ["ruff", "flake8", "mypy", "isort"]
+style = ["ruff", "mypy"]
 docs = ["sphinx", "sphinx-autoapi"]
 optional = []
 test = ["pytest", "symfem[optional]", "numpy"]
