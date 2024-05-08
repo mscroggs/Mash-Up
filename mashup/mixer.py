@@ -108,7 +108,7 @@ class Mixer:
         norm = np.linalg.norm
         self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2) / self.speed
 
-    def mix(self):
+    def mix(self, shortened: bool = False):
         if self.speed > 1.2:
             raise ValueError("Too much speed up")
 
@@ -124,10 +124,16 @@ class Mixer:
         out = TemporaryFile()
 
         if self.fade_in_length >= self.fade_out_length:
-            out.write(s1_pre._data)
+            if shortened:
+                out.write(s1_pre[-1000:]._data)
+            else:
+                out.write(s1_pre._data)
             xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
         else:
-            out.write(s1_pre[: -200 * 9]._data)
+            if shortened:
+                out.write(s1_pre[-2500 : -200 * 9]._data)
+            else:
+                out.write(s1_pre[: -200 * 9]._data)
             for i in range(9, 0, -1):
                 if i == 1:
                     out.write(s1_pre[-200:].speedup(self.speed ** (1 - i / 10))._data)
@@ -140,7 +146,10 @@ class Mixer:
         if self.fade_in_length <= self.fade_out_length:
             xf *= s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
             out.write(xf._data)
-            out.write(s2_post._data)
+            if shortened:
+                out.write(s2_post[:1000]._data)
+            else:
+                out.write(s2_post._data)
         else:
             xf *= s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float("inf"))
             out.write(xf._data)
@@ -148,7 +157,10 @@ class Mixer:
                 out.write(
                     s2_post[200 * (i - 1) : 200 * i].speedup(self.speed ** (1 - i / 10))._data
                 )
-            out.write(s2_post[200 * 9 :]._data)
+            if shortened:
+                out.write(s2_post[200 * 9 : 2500]._data)
+            else:
+                out.write(s2_post[200 * 9 :]._data)
 
         out.seek(0)
 
