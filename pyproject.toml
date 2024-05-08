@@ -3,7 +3,7 @@ build-backend = "flit_core.buildapi"
 requires = ["flit_core >=3.8.0,<4"]
 
 [project]
-name = "mash"
+name = "mashup"
 version = "2024.0.0"
 description = "Library to automatically crossfade between songs"
 readme = "README.md"
@@ -13,7 +13,7 @@ authors = [
     { name = "Sayan Das" },
     { name = "Matthew Scroggs", email = "mashup@mscroggs.co.uk" }
 ]
-packages = ["mash"]
+packages = ["mashup"]
 dependencies = ["librosa", "pydub", "numpy"]
 
 [project.urls]
