@@ -106,7 +106,7 @@ class Mixer:
         chroma2 = chroma2[:, :nsamples]
 
         norm = np.linalg.norm
-        self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2)
+        self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2) / self.speed
 
     def mix(self):
         if self.speed > 1.2:
