@@ -29,12 +29,12 @@ class Song:
 
     def load(self):
         if self.cached and os.path.exists(os.path.join(self.cache_dir, f"{self.name}.pkl")):
-            with open(os.path.join(self.cache_dir, f"{self.name}.pkl"), 'rb') as f:
+            with open(os.path.join(self.cache_dir, f"{self.name}.pkl"), "rb") as f:
                 self.y = pickle.load(f)
 
         self.y, sr = librosa.load(self.path, sr=self.sr)
         if self.cached:
-            with open(os.path.join(self.cache_dir, f"{self.name}.pkl"), 'wb') as f:
+            with open(os.path.join(self.cache_dir, f"{self.name}.pkl"), "wb") as f:
                 pickle.dump(self.y, f)
 
     def analyse(self):

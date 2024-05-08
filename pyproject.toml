@@ -1,0 +1,42 @@
+[build-system]
+build-backend = "flit_core.buildapi"
+requires = ["flit_core >=3.8.0,<4"]
+
+[project]
+name = "Mash-Up"
+version = "2024.0.0"
+description = "Library to automatically crossfade between songs"
+readme = "README.md"
+requires-python = ">=3.8.0"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Sayan Das" },
+    { name = "Matthew Scroggs", email = "mashup@mscroggs.co.uk" }
+]
+packages = ["mash"]
+dependencies = ["librosa", "pydub", "numpy"]
+
+[project.urls]
+homepage = "https://github.com/mscroggs/Mash-Up"
+repository = "https://github.com/mscroggs/Mash-Up"
+
+[project.optional-dependencies]
+style = ["ruff", "flake8", "mypy", "isort"]
+docs = ["sphinx", "sphinx-autoapi"]
+optional = []
+test = ["pytest", "symfem[optional]", "numpy"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.isort]
+line_length = 100

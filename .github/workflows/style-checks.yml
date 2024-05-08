@@ -1,0 +1,30 @@
+name: 🕶️ 
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  style-checks:
+    name: Run style checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get install -y python3-setuptools
+      - run: pip3 install -e .[style,docs]
+      - run: python3 -m ruff check .
+        name: Run ruff checks
+      - run: python3 -m flake8 .
+        name: Run flake8 checks
+      - run: python3 -m mypy .
+        name: Run mypy checks
+      - run: python3 -m isort --check .
+        name: Run isort checks
+      - run: |
+          cd docs
+          make html SPHINXOPTS="-W"
+        name: Test docs build

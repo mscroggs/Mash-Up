@@ -33,7 +33,7 @@ class Mixer:
         """
         self.sr = sample_rate
         self.cached = cached
-        self.cache_dir   = cache_dir
+        self.cache_dir = cache_dir
         if cached and not os.path.isdir(self.cache_dir):
             os.mkdir(self.cache_dir)
 
@@ -62,14 +62,19 @@ class Mixer:
         na = self.song1.beats.shape[0] - 1
 
         scores = [
-            sum(self.song1.beats[na-i+1] * self.song2.beats[i] for i in range(1, t + 1)) / t
-            for t in range(2, na // 4)]
+            sum(self.song1.beats[na - i + 1] * self.song2.beats[i] for i in range(1, t + 1)) / t
+            for t in range(2, na // 4)
+        ]
         beats = np.argmax(scores) + 2
 
         in_duration = 1000 * librosa.get_duration(y=self.song1.y, sr=self.sr)
-        self.fade_out_start = 1000 * librosa.frames_to_time(self.song1.beats, sr=self.sr)[-beats//2]
+        self.fade_out_start = (
+            1000 * librosa.frames_to_time(self.song1.beats, sr=self.sr)[-beats // 2]
+        )
         self.fade_out_length = in_duration - self.fade_out_start
-        self.fade_in_length = 1000 * librosa.frames_to_time(self.song2.beats, sr=self.sr)[beats//2]
+        self.fade_in_length = (
+            1000 * librosa.frames_to_time(self.song2.beats, sr=self.sr)[beats // 2]
+        )
 
         if self.fade_in_length >= self.fade_out_length:
             self.speed = self.fade_in_length / self.fade_out_length
@@ -84,32 +89,34 @@ class Mixer:
         s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
         s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
 
-        s1_pre = s1[:self.fade_out_start]
-        s1_fade = s1[self.fade_out_start:]
-        s2_fade = s2[:self.fade_in_length]
-        s2_post = s2[self.fade_in_length:]
+        s1_pre = s1[: self.fade_out_start]
+        s1_fade = s1[self.fade_out_start :]
+        s2_fade = s2[: self.fade_in_length]
+        s2_post = s2[self.fade_in_length :]
 
         out = TemporaryFile()
 
         if self.fade_in_length >= self.fade_out_length:
             out.write(s1_pre._data)
-            xf = s1_fade.fade(to_gain=-120, start=0, end=float('inf'))
+            xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
         else:
-            out.write(s1_pre[:-200*9]._data)
+            out.write(s1_pre[: -200 * 9]._data)
             for i in range(1, 10):
-                out.write(s1_pre[-200 * i:-200 * (i-1)].speedup(self.speed ** (i/10))._data)
-            xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float('inf'))
+                out.write(s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (i / 10))._data)
+            xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf"))
 
         if self.fade_in_length <= self.fade_out_length:
-            xf *= s2_fade.fade(from_gain=-120, start=0, end=float('inf'))
+            xf *= s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
             out.write(xf._data)
             out.write(s2_post._data)
         else:
-            xf *= s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float('inf'))
+            xf *= s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float("inf"))
             out.write(xf._data)
             for i in range(1, 10):
-                out.write(s2_post[200 * (i - 1):200 * i].speedup(self.speed ** (1 - i/10))._data)
-            out.write(s2_post[200*9:]._data)
+                out.write(
+                    s2_post[200 * (i - 1) : 200 * i].speedup(self.speed ** (1 - i / 10))._data
+                )
+            out.write(s2_post[200 * 9 :]._data)
 
         out.seek(0)
 
