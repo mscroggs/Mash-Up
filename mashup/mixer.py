@@ -52,7 +52,7 @@ class Mixer:
             raise RuntimeError("Must mix before exporting")
         self.mixed.export(out_f=filename, format="mp3")
 
-    def analyse(self):
+    def analyse(self, compute_mixability: bool = True):
         self.y1 = self.song1.analyse()
         self.y2 = self.song2.analyse()
 
@@ -79,7 +79,7 @@ class Mixer:
         else:
             self.speed = self.fade_out_length / self.fade_in_length
 
-        if self.speed > 1.2:
+        if not compute_mixability or self.speed > 1.2:
             return
 
         # Load files
@@ -123,12 +123,11 @@ class Mixer:
 
         out = TemporaryFile()
 
-        if self.fade_in_length >= self.fade_out_length:
+        if self.fade_in_length >= self.fade_out_length or self.speed < 1.01:
             if shortened:
                 out.write(s1_pre[-1000:]._data)
             else:
                 out.write(s1_pre._data)
-            xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
         else:
             if shortened:
                 out.write(s1_pre[-2500 : -200 * 9]._data)
@@ -141,18 +140,31 @@ class Mixer:
                     out.write(
                         s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (1 - i / 10))._data
                     )
-            xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf"))
 
-        if self.fade_in_length <= self.fade_out_length:
-            xf *= s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
-            out.write(xf._data)
+        if self.speed < 1.01:
+            if self.fade_in_length >= self.fade_out_length:
+                xf = s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
+                xf *= s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
+            else:
+                xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
+                xf *= s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
+        else:
+            if self.fade_in_length >= self.fade_out_length:
+                xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
+            else:
+                xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf"))
+            if self.fade_in_length <= self.fade_out_length:
+                xf *= s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
+            else:
+                xf *= s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float("inf"))
+        out.write(xf._data)
+
+        if self.fade_in_length <= self.fade_out_length or self.speed < 1.01:
             if shortened:
                 out.write(s2_post[:1000]._data)
             else:
                 out.write(s2_post._data)
         else:
-            xf *= s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float("inf"))
-            out.write(xf._data)
             for i in range(1, 10):
                 out.write(
                     s2_post[200 * (i - 1) : 200 * i].speedup(self.speed ** (1 - i / 10))._data
