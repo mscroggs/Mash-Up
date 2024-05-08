@@ -5,10 +5,9 @@ import librosa
 import pydub
 import numpy as np
 from tempfile import TemporaryFile
-import os
 
-from mash.config import default_cache_dir
-from mash.song import Song
+from .config import default_cache_dir
+from .song import Song
 
 
 class Mixer:
@@ -27,7 +26,7 @@ class Mixer:
         Args:
             song1: Path of song to play first
             song2: Path of song to play second
-            cached: Should *TODO: something* be cached
+            cached: Should songs be cached?
             cache_dir: Cache directory
             sample_rate: new sample rate for audio files
         """
@@ -41,6 +40,7 @@ class Mixer:
         self.song2 = Song(song2, 1, sample_rate, cached, cache_dir)
 
         self.mixed: typing.Optional[typing.Any] = None
+        self.mixability = 1000
 
         self.load_songs()
         self.analyse()
@@ -56,7 +56,6 @@ class Mixer:
         self.mixed.export(out_f=filename, format="mp3")
 
     def analyse(self):
-        # TODO: Add cosine distance similarity to choose the best mixout
         self.y1 = self.song1.analyse()
         self.y2 = self.song2.analyse()
 
@@ -84,9 +83,38 @@ class Mixer:
             self.speed = self.fade_out_length / self.fade_in_length
 
         if self.speed > 1.2:
-            raise ValueError("Too much speed up")
+            return
+
+        # Load files
+        s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
+        s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
+
+        if self.fade_in_length >= self.fade_out_length:
+            s1_fade = s1[self.fade_out_start :]
+        else:
+            s1_fade = s1[self.fade_out_start :].speedup(self.speed)
+        if self.fade_in_length <= self.fade_out_length:
+            s2_fade = s2[: self.fade_in_length]
+        else:
+            s2_fade = s2[: self.fade_in_length].speedup(self.speed)
+
+        s1_fade = np.array(s1_fade.get_array_of_samples(), dtype=np.float32)
+        s2_fade = np.array(s2_fade.get_array_of_samples(), dtype=np.float32)
+
+        chroma1 = librosa.feature.chroma_cqt(y=s1_fade, sr=self.sr)
+        chroma2 = librosa.feature.chroma_cqt(y=s2_fade, sr=self.sr)
+
+        nsamples = min(chroma1.shape[1], chroma2.shape[1])
+        chroma1 = chroma1[:, :nsamples]
+        chroma2 = chroma2[:, :nsamples]
+
+        norm = np.linalg.norm
+        self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2)
 
     def mix(self):
+        if self.speed > 1.2:
+            raise ValueError("Too much speed up")
+
         # Load files
         s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
         s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")

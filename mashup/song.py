@@ -2,7 +2,7 @@ import pickle
 import librosa
 import os.path
 
-from mash.config import default_cache_dir
+from .config import default_cache_dir
 
 
 class Song:
