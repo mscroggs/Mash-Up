@@ -161,7 +161,7 @@ class Mixer:
                 out += s2_post[200 * (i - 1) : 200 * i].speedup(self.speed ** (1 - i / 10))
 
             self.fade_end = out.duration_seconds
-            self.song2_fade_end = s2.duration_seconds - s2_post[200*9:].duration_seconds
+            self.song2_fade_end = s2.duration_seconds - s2_post[200 * 9 :].duration_seconds
 
             if shortened:
                 out += s2_post[200 * 9 : 2500]
@@ -169,8 +169,13 @@ class Mixer:
                 out += s2_post[200 * 9 :]
 
         if self.fade_in_length >= self.fade_out_length or self.speed < 1.01:
-            out = out.overlay(s1_fade.fade(to_gain=-120, start=0, end=float("inf")), position=1000*fade_start)
+            out = out.overlay(
+                s1_fade.fade(to_gain=-120, start=0, end=float("inf")), position=1000 * fade_start
+            )
         else:
-            out = out.overlay(s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf")), position=1000*fade_start)
+            out = out.overlay(
+                s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf")),
+                position=1000 * fade_start,
+            )
 
         self.mixed = out
