@@ -40,10 +40,7 @@ class Mixer:
         self.song2 = Song(song2, 1, sample_rate, cached, cache_dir)
 
         self.mixed: typing.Optional[typing.Any] = None
-        self.mixability = 1000
-
-        self.load_songs()
-        self.analyse()
+        self.mixability = -1
 
     def load_songs(self):
         self.y1 = self.song1.load()
@@ -131,8 +128,11 @@ class Mixer:
             xf = s1_fade.fade(to_gain=-120, start=0, end=float("inf"))
         else:
             out.write(s1_pre[: -200 * 9]._data)
-            for i in range(1, 10):
-                out.write(s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (i / 10))._data)
+            for i in range(9, 0, -1):
+                if i == 1:
+                    out.write(s1_pre[-200 : ].speedup(self.speed ** (1 - i / 10))._data)
+                else:
+                    out.write(s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (1 - i / 10))._data)
             xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf"))
 
         if self.fade_in_length <= self.fade_out_length:
