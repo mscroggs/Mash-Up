@@ -130,9 +130,11 @@ class Mixer:
             out.write(s1_pre[: -200 * 9]._data)
             for i in range(9, 0, -1):
                 if i == 1:
-                    out.write(s1_pre[-200 : ].speedup(self.speed ** (1 - i / 10))._data)
+                    out.write(s1_pre[-200:].speedup(self.speed ** (1 - i / 10))._data)
                 else:
-                    out.write(s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (1 - i / 10))._data)
+                    out.write(
+                        s1_pre[-200 * i : -200 * (i - 1)].speedup(self.speed ** (1 - i / 10))._data
+                    )
             xf = s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf"))
 
         if self.fade_in_length <= self.fade_out_length:
