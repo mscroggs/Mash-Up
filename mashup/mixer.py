@@ -56,6 +56,9 @@ class Mixer:
         self.y1 = self.song1.analyse()
         self.y2 = self.song2.analyse()
 
+        assert self.song1.beats is not None
+        assert self.song2.beats is not None
+
         # Compute crossfade sizes
         na = self.song1.beats.shape[0] - 1
 

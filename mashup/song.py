@@ -23,9 +23,9 @@ class Song:
         if cached and not os.path.isdir(self.cache_dir):
             os.mkdir(self.cache_dir)
         self.sr = sample_rate
-        self.y = None
-        self.tempo = None
-        self.beats = None
+        self.y: typing.Optional[typing.Any] = None
+        self.tempo: typing.Optional[typing.Any] = None
+        self.beats: typing.Optional[typing.Any] = None
 
     def load(self):
         if self.cached and os.path.exists(os.path.join(self.cache_dir, f"{self.name}.pkl")):
