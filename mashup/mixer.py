@@ -39,6 +39,7 @@ class Mixer:
         self.song2 = Song(song2, 1, sample_rate, cached, cache_dir)
 
         self.mixed: typing.Optional[typing.Any] = None
+        self.fade_start: typing.Optional[float] = None
         self.fade_end: typing.Optional[float] = None
         self.song2_fade_end: typing.Optional[float] = None
         self.mixability = -1
@@ -130,11 +131,13 @@ class Mixer:
                 out = s1_pre[-1000:]
             else:
                 out = s1_pre
+            self.fade_start = out.duration_seconds
         else:
             if shortened:
                 out = s1_pre[-2500 : -200 * 9]
             else:
                 out = s1_pre[: -200 * 9]
+            self.fade_start = out.duration_seconds
             for i in range(9, 0, -1):
                 if i == 1:
                     out += s1_pre[-200:].speedup(self.speed ** (1 - i / 10))
