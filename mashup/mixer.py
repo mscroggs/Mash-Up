@@ -63,7 +63,7 @@ class Mixer:
         self.fade_start: typing.Optional[float] = None
         self.fade_end: typing.Optional[float] = None
         self.song2_fade_end: typing.Optional[float] = None
-        self.mixability = -1
+        self.mixability = -1.0
 
     def load_songs(self):
         self.song1.load()
