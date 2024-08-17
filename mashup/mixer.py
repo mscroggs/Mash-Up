@@ -128,8 +128,21 @@ class Mixer:
         chroma1 = chroma1[:, :nsamples]
         chroma2 = chroma2[:, :nsamples]
 
+        b1 = self.frames_to_seconds(b1)
+        b2 = self.frames_to_seconds(b2)
+        b1 = [i - b1[0] for i in b1]
+        b2 = [i - b2[0] for i in b2]
+        if self.speed > 1.01:
+            if out_len > in_len:
+                b1 = [i / self.speed for i in b1]
+            else:
+                b2 = [i / self.speed for i in b2]
+
+        beatdiff = sum(abs(i - j) for i, j in zip(b1, b2)) / len(b1)
+
         norm = np.linalg.norm
-        self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2) / self.speed
+        self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2)
+        self.mixability /= self.speed * (1 + beatdiff)
 
     def mix(self, shortened: bool = False):
         if self.speed > 1.2:
