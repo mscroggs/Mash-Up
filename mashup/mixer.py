@@ -8,24 +8,25 @@ import numpy as np
 from .config import default_cache_dir
 from .song import Song
 
-mid_gain = -5
+mid_gain = -3
 fade_size = 2000
 
 
 def apply_fade_in(clip):
-    if clip.duration_seconds < 2 * fade_size / 1000:
+    if clip.duration_seconds < 4 * fade_size / 1000:
         return clip.fade(from_gain=-120, start=0, end=float("inf"))
     out = clip[:fade_size].fade(from_gain=-120, to_gain=mid_gain, start=0, end=float("inf"))
-    out += clip[fade_size:-fade_size].apply_gain(mid_gain)
-    out += clip[-fade_size:].fade(from_gain=mid_gain, start=0, end=float("inf"))
+    out += clip[fade_size : -3 * fade_size].apply_gain(mid_gain)
+    out += clip[-3 * fade_size :].fade(from_gain=mid_gain, start=0, end=float("inf"))
     return out
 
 
 def apply_fade_out(clip):
-    if clip.duration_seconds < 2 * fade_size / 1000:
+    if clip.duration_seconds < 4 * fade_size / 1000:
         return clip.fade(to_gain=-120, start=0, end=float("inf"))
     out = clip[:fade_size].fade(to_gain=mid_gain, start=0, end=float("inf"))
-    out += clip[fade_size:].apply_gain(mid_gain)
+    out += clip[fade_size : -3 * fade_size].apply_gain(mid_gain)
+    out += clip[-3 * fade_size :].fade(from_gain=mid_gain, to_gain=-120, start=0, end=float("inf"))
     return out
 
 
@@ -161,7 +162,7 @@ class Mixer:
         s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
 
         s1_pre = s1[: self.fade_out[0]]
-        s1_fade = s1[self.fade_out[0] : self.fade_out[1]]
+        s1_fade = s1[self.fade_out[0] :]
         s2_fade = s2[self.fade_in[0] : self.fade_in[1]]
         s2_post = s2[self.fade_in[1] :]
 
