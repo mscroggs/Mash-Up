@@ -104,6 +104,44 @@ class Mixer:
         self.speed = max(out_len, in_len) / min(out_len, in_len)
 
         s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
+
+        if compute_mixability and self.speed < 1.2:
+            s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
+
+            s1_fade = s1[self.fade_out[0] : self.fade_out[1]]
+            s2_fade = s2[self.fade_in[0] : self.fade_in[1]]
+            if self.speed > 1.01:
+                if out_len > in_len:
+                    s1_fade = s1_fade.speedup(self.speed)
+                else:
+                    s2_fade = s2_fade.speedup(self.speed)
+
+            s1_fade = np.array(s1_fade.get_array_of_samples(), dtype=np.float32)
+            s2_fade = np.array(s2_fade.get_array_of_samples(), dtype=np.float32)
+
+            chroma1 = librosa.feature.chroma_cqt(y=s1_fade, sr=self.sr)
+            chroma2 = librosa.feature.chroma_cqt(y=s2_fade, sr=self.sr)
+
+            nsamples = min(chroma1.shape[1], chroma2.shape[1])
+            chroma1 = chroma1[:, :nsamples]
+            chroma2 = chroma2[:, :nsamples]
+
+            b1 = self.frames_to_secs(b1)
+            b2 = self.frames_to_secs(b2)
+            b1 = [i - b1[0] for i in b1]
+            b2 = [i - b2[0] for i in b2]
+            if self.speed > 1.01:
+                if out_len > in_len:
+                    b1 = [i / self.speed for i in b1]
+                else:
+                    b2 = [i / self.speed for i in b2]
+
+            beatdiff = sum(abs(i - j) for i, j in zip(b1, b2)) / len(b1)
+
+            norm = np.linalg.norm
+            self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2)
+            self.mixability /= self.speed * (1 + beatdiff)
+
         extra = s1.duration_seconds - self.fade_out[1] / 1000
         if self.speed > 1.01:
             if out_len > in_len:
@@ -113,46 +151,6 @@ class Mixer:
         else:
             self.fade_in[1] += extra
         self.fade_out[1] += extra
-
-        if not compute_mixability or self.speed > 1.2:
-            return
-
-        # Load files
-        s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
-
-        s1_fade = s1[self.fade_out[0] : self.fade_out[1]]
-        s2_fade = s2[self.fade_in[0] : self.fade_in[1]]
-        if self.speed > 1.01:
-            if out_len > in_len:
-                s1_fade = s1_fade.speedup(self.speed)
-            else:
-                s2_fade = s2_fade.speedup(self.speed)
-
-        s1_fade = np.array(s1_fade.get_array_of_samples(), dtype=np.float32)
-        s2_fade = np.array(s2_fade.get_array_of_samples(), dtype=np.float32)
-
-        chroma1 = librosa.feature.chroma_cqt(y=s1_fade, sr=self.sr)
-        chroma2 = librosa.feature.chroma_cqt(y=s2_fade, sr=self.sr)
-
-        nsamples = min(chroma1.shape[1], chroma2.shape[1])
-        chroma1 = chroma1[:, :nsamples]
-        chroma2 = chroma2[:, :nsamples]
-
-        b1 = self.frames_to_secs(b1)
-        b2 = self.frames_to_secs(b2)
-        b1 = [i - b1[0] for i in b1]
-        b2 = [i - b2[0] for i in b2]
-        if self.speed > 1.01:
-            if out_len > in_len:
-                b1 = [i / self.speed for i in b1]
-            else:
-                b2 = [i / self.speed for i in b2]
-
-        beatdiff = sum(abs(i - j) for i, j in zip(b1, b2)) / len(b1)
-
-        norm = np.linalg.norm
-        self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2)
-        self.mixability /= self.speed * (1 + beatdiff)
 
     def mix(self, shortened: bool = False):
         if self.speed > 1.2:
