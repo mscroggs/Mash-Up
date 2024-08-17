@@ -8,6 +8,26 @@ import numpy as np
 from .config import default_cache_dir
 from .song import Song
 
+mid_gain = -5
+
+
+def apply_fade_in(clip):
+    if clip.duration_seconds < 1.0:
+        return clip.fade(from_gain=-120, start=0, end=float("inf"))
+    out = clip[:500].fade(from_gain=-120, to_gain=mid_gain, start=0, end=float("inf"))
+    out += clip[500:-500].apply_gain(mid_gain)
+    out += clip[-500:].fade(from_gain=mid_gain, start=0, end=float("inf"))
+    return out
+
+
+def apply_fade_out(clip):
+    if clip.duration_seconds < 1.0:
+        return clip.fade(to_gain=-120, start=0, end=float("inf"))
+    out = clip[:500].fade(to_gain=mid_gain, start=0, end=float("inf"))
+    out += clip[500:-500].apply_gain(mid_gain)
+    out += clip[-500:].fade(from_gain=mid_gain, to_gain=-120, start=0, end=float("inf"))
+    return out
+
 
 class Mixer:
     """Mixer."""
@@ -45,8 +65,8 @@ class Mixer:
         self.mixability = -1
 
     def load_songs(self):
-        self.y1 = self.song1.load()
-        self.y2 = self.song2.load()
+        self.song1.load()
+        self.song2.load()
 
     def export(self, filename: str = "mixed.mp3"):
         assert filename.endswith(".mp3")
@@ -54,35 +74,34 @@ class Mixer:
             raise RuntimeError("Must mix before exporting")
         self.mixed.export(out_f=filename, format="mp3")
 
+    def frames_to_seconds(self, frames):
+        return librosa.frames_to_time(frames, sr=self.sr)
+
     def analyse(self, compute_mixability: bool = True):
-        self.y1 = self.song1.analyse()
-        self.y2 = self.song2.analyse()
+        self.song1.analyse()
+        self.song2.analyse()
 
         assert self.song1.beats is not None
         assert self.song2.beats is not None
 
         # Compute crossfade sizes
-        na = self.song1.beats.shape[0] - 1
+        nb = min(len(self.song1.beats), len(self.song2.beats)) // 3
+        b1 = self.song1.beats[-nb:]
+        b2 = self.song2.beats[:nb]
+        while self.frames_to_seconds(min(b1[-1] - b1[0], b2[-1] - b2[0])) > 30:
+            b1 = b1[1:]
+            b2 = b2[:-1]
 
-        scores = [
-            sum(self.song1.beats[na - i + 1] * self.song2.beats[i] for i in range(1, t + 1)) / t
-            for t in range(2, na // 4)
+        self.fade_out = [
+            self.frames_to_seconds(b1[0]) * 1000,
+            self.frames_to_seconds(b1[-1]) * 1000,
         ]
-        beats = np.argmax(scores) + 2
+        self.fade_in = [self.frames_to_seconds(b2[0]) * 1000, self.frames_to_seconds(b2[-1]) * 1000]
 
-        in_duration = 1000 * librosa.get_duration(y=self.song1.y, sr=self.sr)
-        self.fade_out_start = (
-            1000 * librosa.frames_to_time(self.song1.beats, sr=self.sr)[-beats // 2]
-        )
-        self.fade_out_length = in_duration - self.fade_out_start
-        self.fade_in_length = (
-            1000 * librosa.frames_to_time(self.song2.beats, sr=self.sr)[beats // 2]
-        )
+        out_len = self.fade_out[1] - self.fade_out[0]
+        in_len = self.fade_in[1] - self.fade_in[0]
 
-        if self.fade_in_length >= self.fade_out_length:
-            self.speed = self.fade_in_length / self.fade_out_length
-        else:
-            self.speed = self.fade_out_length / self.fade_in_length
+        self.speed = max(out_len, in_len) / min(out_len, in_len)
 
         if not compute_mixability or self.speed > 1.2:
             return
@@ -91,14 +110,13 @@ class Mixer:
         s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
         s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
 
-        if self.fade_in_length >= self.fade_out_length:
-            s1_fade = s1[self.fade_out_start :]
-        else:
-            s1_fade = s1[self.fade_out_start :].speedup(self.speed)
-        if self.fade_in_length <= self.fade_out_length:
-            s2_fade = s2[: self.fade_in_length]
-        else:
-            s2_fade = s2[: self.fade_in_length].speedup(self.speed)
+        s1_fade = s1[self.fade_out[0] : self.fade_out[1]]
+        s2_fade = s2[self.fade_in[0] : self.fade_in[1]]
+        if self.speed > 1.01:
+            if out_len > in_len:
+                s1_fade = s1_fade.speedup(self.speed)
+            else:
+                s2_fade = s2_fade.speedup(self.speed)
 
         s1_fade = np.array(s1_fade.get_array_of_samples(), dtype=np.float32)
         s2_fade = np.array(s2_fade.get_array_of_samples(), dtype=np.float32)
@@ -121,12 +139,15 @@ class Mixer:
         s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
         s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
 
-        s1_pre = s1[: self.fade_out_start]
-        s1_fade = s1[self.fade_out_start :]
-        s2_fade = s2[: self.fade_in_length]
-        s2_post = s2[self.fade_in_length :]
+        s1_pre = s1[: self.fade_out[0]]
+        s1_fade = s1[self.fade_out[0] : self.fade_out[1]]
+        s2_fade = s2[self.fade_in[0] : self.fade_in[1]]
+        s2_post = s2[self.fade_in[1] :]
 
-        if self.fade_in_length >= self.fade_out_length or self.speed < 1.01:
+        out_len = self.fade_out[1] - self.fade_out[0]
+        in_len = self.fade_in[1] - self.fade_in[0]
+
+        if in_len >= out_len or self.speed < 1.01:
             if shortened:
                 out = s1_pre[-1000:]
             else:
@@ -146,12 +167,11 @@ class Mixer:
 
         fade_start = out.duration_seconds
 
-        if self.fade_in_length <= self.fade_out_length or self.speed < 1.01:
-            out += s2_fade.fade(from_gain=-120, start=0, end=float("inf"))
-        else:
-            out += s2_fade.speedup(self.speed).fade(from_gain=-120, start=0, end=float("inf"))
+        if in_len > out_len and self.speed >= 1.01:
+            s2_fade = s2_fade.speedup(self.speed)
+        out += apply_fade_in(s2_fade)
 
-        if self.fade_in_length <= self.fade_out_length or self.speed < 1.01:
+        if in_len <= out_len or self.speed < 1.01:
             self.fade_end = out.duration_seconds
             self.song2_fade_end = s2.duration_seconds - s2_post.duration_seconds
 
@@ -171,14 +191,8 @@ class Mixer:
             else:
                 out += s2_post[200 * 9 :]
 
-        if self.fade_in_length >= self.fade_out_length or self.speed < 1.01:
-            out = out.overlay(
-                s1_fade.fade(to_gain=-120, start=0, end=float("inf")), position=1000 * fade_start
-            )
-        else:
-            out = out.overlay(
-                s1_fade.speedup(self.speed).fade(to_gain=-120, start=0, end=float("inf")),
-                position=1000 * fade_start,
-            )
+        if in_len < out_len and self.speed >= 1.01:
+            s1_fade = s1_fade.speedup(self.speed)
+        out = out.overlay(apply_fade_out(s1_fade), position=1000 * fade_start)
 
         self.mixed = out
