@@ -9,23 +9,23 @@ from .config import default_cache_dir
 from .song import Song
 
 mid_gain = -5
+fade_size = 2000
 
 
 def apply_fade_in(clip):
-    if clip.duration_seconds < 1.0:
+    if clip.duration_seconds < 2 * fade_size / 1000:
         return clip.fade(from_gain=-120, start=0, end=float("inf"))
-    out = clip[:500].fade(from_gain=-120, to_gain=mid_gain, start=0, end=float("inf"))
-    out += clip[500:-500].apply_gain(mid_gain)
-    out += clip[-500:].fade(from_gain=mid_gain, start=0, end=float("inf"))
+    out = clip[:fade_size].fade(from_gain=-120, to_gain=mid_gain, start=0, end=float("inf"))
+    out += clip[fade_size:-fade_size].apply_gain(mid_gain)
+    out += clip[-fade_size:].fade(from_gain=mid_gain, start=0, end=float("inf"))
     return out
 
 
 def apply_fade_out(clip):
-    if clip.duration_seconds < 1.0:
+    if clip.duration_seconds < 2 * fade_size / 1000:
         return clip.fade(to_gain=-120, start=0, end=float("inf"))
-    out = clip[:500].fade(to_gain=mid_gain, start=0, end=float("inf"))
-    out += clip[500:-500].apply_gain(mid_gain)
-    out += clip[-500:].fade(from_gain=mid_gain, to_gain=-120, start=0, end=float("inf"))
+    out = clip[:fade_size].fade(to_gain=mid_gain, start=0, end=float("inf"))
+    out += clip[fade_size:].apply_gain(mid_gain)
     return out
 
 
@@ -74,7 +74,7 @@ class Mixer:
             raise RuntimeError("Must mix before exporting")
         self.mixed.export(out_f=filename, format="mp3")
 
-    def frames_to_seconds(self, frames):
+    def frames_to_secs(self, frames):
         return librosa.frames_to_time(frames, sr=self.sr)
 
     def analyse(self, compute_mixability: bool = True):
@@ -88,26 +88,36 @@ class Mixer:
         nb = min(len(self.song1.beats), len(self.song2.beats)) // 3
         b1 = self.song1.beats[-nb:]
         b2 = self.song2.beats[:nb]
-        while self.frames_to_seconds(min(b1[-1] - b1[0], b2[-1] - b2[0])) > 30:
+        while self.frames_to_secs(min(b1[-1] - b1[0], b2[-1] - b2[0])) > 30:
             b1 = b1[1:]
             b2 = b2[:-1]
 
         self.fade_out = [
-            self.frames_to_seconds(b1[0]) * 1000,
-            self.frames_to_seconds(b1[-1]) * 1000,
+            self.frames_to_secs(b1[0]) * 1000,
+            self.frames_to_secs(b1[-1]) * 1000,
         ]
-        self.fade_in = [self.frames_to_seconds(b2[0]) * 1000, self.frames_to_seconds(b2[-1]) * 1000]
+        self.fade_in = [self.frames_to_secs(b2[0]) * 1000, self.frames_to_secs(b2[-1]) * 1000]
 
         out_len = self.fade_out[1] - self.fade_out[0]
         in_len = self.fade_in[1] - self.fade_in[0]
 
         self.speed = max(out_len, in_len) / min(out_len, in_len)
 
+        s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
+        extra = s1.duration_seconds - self.fade_out[1] / 1000
+        if self.speed > 1.01:
+            if out_len > in_len:
+                self.fade_in[1] += extra / self.speed
+            else:
+                self.fade_in[1] += extra * self.speed
+        else:
+            self.fade_in[1] += extra
+        self.fade_out[1] += extra
+
         if not compute_mixability or self.speed > 1.2:
             return
 
         # Load files
-        s1 = pydub.AudioSegment.from_file(self.song1.path, format="mp3")
         s2 = pydub.AudioSegment.from_file(self.song2.path, format="mp3")
 
         s1_fade = s1[self.fade_out[0] : self.fade_out[1]]
@@ -128,8 +138,8 @@ class Mixer:
         chroma1 = chroma1[:, :nsamples]
         chroma2 = chroma2[:, :nsamples]
 
-        b1 = self.frames_to_seconds(b1)
-        b2 = self.frames_to_seconds(b2)
+        b1 = self.frames_to_secs(b1)
+        b2 = self.frames_to_secs(b2)
         b1 = [i - b1[0] for i in b1]
         b2 = [i - b2[0] for i in b2]
         if self.speed > 1.01:
