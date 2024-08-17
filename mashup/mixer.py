@@ -141,8 +141,9 @@ class Mixer:
         beatdiff = sum(abs(i - j) for i, j in zip(b1, b2)) / len(b1)
 
         norm = np.linalg.norm
-        self.mixability = norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2)
-        self.mixability /= self.speed * (1 + beatdiff)
+        self.mixability = (
+            norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2) / self.speed / (1 + beatdiff)
+        )
 
     def mix(self, shortened: bool = False):
         if self.speed > 1.2:
