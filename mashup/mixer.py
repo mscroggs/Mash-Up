@@ -142,7 +142,11 @@ class Mixer:
 
         norm = np.linalg.norm
         self.mixability = (
-            norm(chroma1 * chroma2) / norm(chroma1) / norm(chroma2) / self.speed ** 20 / (1 + beatdiff)
+            norm(chroma1 * chroma2)
+            / norm(chroma1)
+            / norm(chroma2)
+            / self.speed**20
+            / (1 + beatdiff)
         )
 
     def mix(self, shortened: bool = False):
